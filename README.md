@@ -3,6 +3,53 @@ Self-Driving Car Engineer Nanodegree Program
 
 ---
 
+## The model
+
+The implementation of Model Predictive Control is a kinematic model. The state consists of positions in x and y, velocity and orientation angle [x, y, v, psi]. The actuations, [a, steer_val] are the acceleration, in the range <-1, 1> and steering angle in the range <-25 deg, 25 deg>. The model is implemented in the mpc.cpp file and is outlined below:
+
+	x[t+1] = x(t) + v(t) * cos(psi(t)) * dt;
+	y[t+1] = y(t) + v(t) * sin(psi(t)) * dt;
+	psi[t+1] = psi(t) + v(t) * delta(t) / Lf * dt;
+	v[t+1] = v(t) + a(t) * dt;
+	cte[t+1] = (f(t) - y(t)) + (v(t) * sin(epsi(t)) * dt);
+	epsi[t+1] = (psi(t) - psides(t)) + v(t) * delta(t) / Lf * dt;
+
+As can be seen in the model outline, state variables are calculated based on the state values from the previous timestep.
+
+## Timestep Length and Elapsed Duration (N & dt)
+
+To tune the parameters I began with dt equal to the simulated latency (0.1s). For large values of N the car would not predict the trajectory well, often cutting corners and hitting the curb during turns. For small values of N the car swiveled because it reacted too quickly to changes in road curvature. Eventually I settled on N = 6 which gave me a somewhat stable trajectory. However the car would still swivel on sharper turns.
+
+To ammend that, I increased the dt to 0.2 but that resulted in car reacting too slowly to changes of curvature. Ultimately I settled on dt of 0.15. With these parameters I was able to drive the car safely and without oscillations around the track. 
+
+I started out with a reference velocity of 25[m/s] which resulted in car speed of around 55 mph. I gradually raised it to see how fast I can drive the car around the track without causing unsafe situations. I was able to raise it to 30[m/s] which results in car speed around 65 mph.
+
+## Polynomial Fitting and MPC Preprocessing
+
+To obtain a second degree polynomial in map coordinates I apply a transformation to the waypoint data: 
+
+	double transf_x, transf_y;
+	transf_x =     (wayp_x- car_x)*cos(car_theta) + (wayp_y- car_y)*sin(car_theta);
+	transf_y =  -1*(wayp_x- car_x)*sin(car_theta) + (wayp_y- car_y)*cos(car_theta);
+
+The waypoints are transformed from map's coordinate system to car's. In this form they can provide useful coefficients that are used by the MPC algorithm and to visualize the waypoints on the simulator with the yellow line.
+
+## Model Predictive Control with Latency
+
+Latecy is solved by predicting state variables at a moment 0.1s in the future and inputting them into the solver. The latency adjustment in code is shown below:
+
+	// adjust for latency
+	double dt = 0.1;
+	px = v*dt;
+	psi = -v*str_ang*dt/2.67;
+	// calculate cross-track and psi errors
+	double cte = -polyeval(coeffs, px) - py;
+	double epsi = -atan(coeffs[1]+2*coeffs[2]*px);
+	// Calculate steer and throttle value using MPC
+	Eigen::VectorXd state(6);
+	state << px, 0, psi, v, cte, epsi;
+	auto vars = mpc.Solve(state, coeffs);
+
 ## Dependencies
 
 * cmake >= 3.5
@@ -30,79 +77,3 @@ Self-Driving Car Engineer Nanodegree Program
 * Simulator. You can download these from the [releases tab](https://github.com/udacity/self-driving-car-sim/releases).
 * Not a dependency but read the [DATA.md](./DATA.md) for a description of the data sent back from the simulator.
 
-
-## Basic Build Instructions
-
-1. Clone this repo.
-2. Make a build directory: `mkdir build && cd build`
-3. Compile: `cmake .. && make`
-4. Run it: `./mpc`.
-
-## Tips
-
-1. It's recommended to test the MPC on basic examples to see if your implementation behaves as desired. One possible example
-is the vehicle starting offset of a straight line (reference). If the MPC implementation is correct, after some number of timesteps
-(not too many) it should find and track the reference line.
-2. The `lake_track_waypoints.csv` file has the waypoints of the lake track. You could use this to fit polynomials and points and see of how well your model tracks curve. NOTE: This file might be not completely in sync with the simulator so your solution should NOT depend on it.
-3. For visualization this C++ [matplotlib wrapper](https://github.com/lava/matplotlib-cpp) could be helpful.)
-4.  Tips for setting up your environment are available [here](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/0949fca6-b379-42af-a919-ee50aa304e6a/lessons/f758c44c-5e40-4e01-93b5-1a82aa4e044f/concepts/23d376c7-0195-4276-bdf0-e02f1f3c665d)
-5. **VM Latency:** Some students have reported differences in behavior using VM's ostensibly a result of latency.  Please let us know if issues arise as a result of a VM environment.
-
-## Editor Settings
-
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
-
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
-
-## Code Style
-
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
-
-## Project Instructions and Rubric
-
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
-
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
-
-## Hints!
-
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
-
-## Call for IDE Profiles Pull Requests
-
-Help your fellow students!
-
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
-
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
-
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
-
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
-
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
-
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
-
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
